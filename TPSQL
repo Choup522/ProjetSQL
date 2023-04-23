@@ -1,0 +1,201 @@
+---IASD - TP SQL - Version finale
+
+CREATE TABLE Ingredient
+( IID SERIAL Primary Key,
+  Nom varchar(25) NOT NULL,
+  CO2 float DEFAULT 0, 
+  CONSTRAINT ID_Ingredient UNIQUE(Nom, CO2), 
+  CONSTRAINT CK_CO2 CHECK ( CO2 >= 0) 
+);
+
+CREATE TABLE Categorie
+( CID SERIAL Primary Key,
+  Nom varchar(25) UNIQUE NOT NULL
+);
+
+CREATE TABLE Plat
+( PID SERIAL Primary Key,
+  Nom varchar(50) NOT NULL,
+  CO2 float DEFAULT 0,
+  CID integer, 
+  CONSTRAINT ID_Plat UNIQUE(Nom, CO2),
+  CONSTRAINT FK_Categorie FOREIGN KEY (CID) REFERENCES Categorie(CID) MATCH FULL, 
+  CONSTRAINT CK_CO2 CHECK ( CO2 >= 0)
+);
+
+CREATE TABLE CompositionPlat
+( PID integer,
+  IID integer, 
+ CONSTRAINT FK_Plat FOREIGN KEY (PID) REFERENCES Plat(PID) ON DELETE CASCADE,
+ CONSTRAINT FK_Ingredient FOREIGN KEY (IID) REFERENCES Ingredient(IID) ON DELETE CASCADE
+);
+
+CREATE TABLE Menu
+( MID SERIAL Primary Key,
+  Nom varchar(50) NOT NULL,
+  CO2 float DEFAULT 0,
+  CONSTRAINT ID_Menu UNIQUE(Nom, CO2),
+  CONSTRAINT CK_CO2 CHECK ( CO2 >= 0)
+);
+
+CREATE TABLE CompositionMenu
+( MID integer,
+  PID integer, 
+ CONSTRAINT FK_Menu FOREIGN KEY (MID) REFERENCES Menu(MID) ON DELETE CASCADE,
+ CONSTRAINT FK_Plat FOREIGN KEY (PID) REFERENCES Plat(PID) ON DELETE CASCADE
+);
+
+-- Triggers sur la table CompositionPlat
+CREATE OR REPLACE Function FonctionCalculCO2Plat() returns trigger as 'DECLARE
+ eCO2 Ingredient.CO2 %TYPE;
+ eIID CompositionPlat.IID %TYPE;
+ 
+ BEGIN
+ SELECT SUM(CO2) INTO eCO2 FROM CompositionPlat join Ingredient on CompositionPlat.IID = Ingredient.IID where PID = NEW.PID;
+
+ IF FOUND THEN
+ UPDATE Plat SET CO2 = eCO2 WHERE PID = NEW.PID;
+ END IF;
+ 
+ RETURN NEW;
+ END;'
+LANGUAGE 'plpgsql';
+
+CREATE TRIGGER CalculCO2Plat AFTER INSERT ON CompositionPlat
+FOR EACH ROW
+EXECUTE procedure FonctionCalculCO2Plat();
+
+--Trigger sur la table CompositionMenu
+CREATE OR REPLACE Function FonctionCalculCO2Menu() returns trigger as 'DECLARE
+
+ eCO2 Plat.CO2 %TYPE;
+ eMID CompositionMenu.MID %TYPE;
+ 
+ BEGIN
+ 
+ IF EXISTS(
+SELECT 1 FROM CompositionMenu cm LEFT OUTER JOIN Plat p ON cm.PID = P.PID WHERE CID = (SELECT CID FROM Plat WHERE Plat.PID = New.PID) AND MID = New.MID)
+
+THEN RAISE EXCEPTION ''Il existe dejà un plat dans cette catégorie pour ce menu''; 
+ 
+ ELSE
+
+ UPDATE Menu SET CO2 = eCO2 WHERE MID = NEW.MID;
+ 
+ RETURN NEW; 
+ END IF;
+ END;'
+LANGUAGE 'plpgsql';    
+
+CREATE TRIGGER CalculCO2Menu BEFORE INSERT ON CompositionMenu
+FOR EACH ROW
+EXECUTE procedure FonctionCalculCO2Menu();
+
+-- Insertion de 5 catégories
+INSERT INTO Categorie(Nom) VALUES ('Entree'),('Plat principal'), ('Dessert') , ('Plateau de fromages') ;
+
+-- Insertion de plusieurs ingrédients
+INSERT INTO Ingredient(Nom,CO2) VALUES ('legumes de saison',53.4), ('huile olive (1/2 c.s.)',18.2),('poulet',774),('riz',84.6),('beurre',94.9),('fromage a pate molle',107),('fromage a pate dure',140),('pain',76),('yaourt',360),('concombre',129),('bifteck',5370),('frites',260),('farine',46.8),('poires',71),('huile (1 c.s.)',32.3),('200g légumes de saison',53.4),('huile (1/2 c.s.)',15.1),('2 œufs',276.7),('pommes de terre',15.5),('fruits de saison',53.4);
+
+-- Insertion de plusieurs plats en récupérant l’id de leur catégorie par une requête
+INSERT INTO Plat (Nom,CID) VALUES ('legumes à la grecque', (SELECT CID FROM Categorie WHERE Nom='Entree')),('poulet au riz', (SELECT CID FROM Categorie WHERE Nom='Plat principal')),('Plateau de fromages', (SELECT CID FROM Categorie WHERE Nom='Plateau de fromages')), ('tzatziki', (SELECT CID FROM Categorie WHERE Nom='Entree')), ('bifteck - frites', (SELECT CID FROM Categorie WHERE Nom='Plat principal')),('tarte aux poires', (SELECT CID FROM Categorie WHERE Nom='Dessert')),('soupe de légumes', (SELECT CID FROM Categorie WHERE Nom='Entree')), ('omelette aux pommes de terre', (SELECT CID FROM Categorie WHERE Nom='Plat principal')),('salade de fruits', (SELECT CID FROM Categorie WHERE Nom='Dessert'));
+
+-- Insertion de plusieurs compositions de plats en récupérant l’id du plat et l’id de l’ingrédient par une requête
+INSERT INTO CompositionPlat VALUES ((SELECT PID FROM Plat WHERE Nom='legumes à la grecque'),(SELECT IID FROM Ingredient WHERE Nom='legumes de saison')), ((SELECT PID FROM Plat WHERE Nom='legumes à la grecque'),(SELECT IID FROM Ingredient WHERE Nom='huile olive (1/2 c.s.)')), ((SELECT PID FROM Plat WHERE Nom='poulet au riz'),(SELECT IID FROM Ingredient WHERE Nom='poulet')), ((SELECT PID FROM Plat WHERE Nom='poulet au riz'),(SELECT IID FROM Ingredient WHERE Nom='riz')),((SELECT PID FROM Plat WHERE Nom='poulet au riz'),(SELECT IID FROM Ingredient WHERE Nom='beurre')),((SELECT PID FROM Plat WHERE Nom='Plateau de fromages'),(SELECT IID FROM Ingredient WHERE Nom='fromage a pate molle')),((SELECT PID FROM Plat WHERE Nom='Plateau de fromages'),(SELECT IID FROM Ingredient WHERE Nom='fromage a pate dure')),((SELECT PID FROM Plat WHERE Nom='Plateau de fromages'),(SELECT IID FROM Ingredient WHERE Nom='pain')), ((SELECT PID FROM Plat WHERE Nom='tzatziki'),(SELECT IID FROM Ingredient WHERE Nom='yaourt')),((SELECT PID FROM Plat WHERE Nom='tzatziki'),(SELECT IID FROM Ingredient WHERE Nom='concombre')), ((SELECT PID FROM Plat WHERE Nom='tzatziki'),(SELECT IID FROM Ingredient WHERE Nom='huile olive (1/2 c.s.)')), ((SELECT PID FROM Plat WHERE Nom='bifteck - frites'),(SELECT IID FROM Ingredient WHERE Nom='bifteck')), ((SELECT PID FROM Plat WHERE Nom='bifteck - frites'),(SELECT IID FROM Ingredient WHERE Nom='frites')),((SELECT PID FROM Plat WHERE Nom='tarte aux poires'),(SELECT IID FROM Ingredient WHERE Nom='farine')),((SELECT PID FROM Plat WHERE Nom='tarte aux poires'),(SELECT IID FROM Ingredient WHERE Nom='poires')), ((SELECT PID FROM Plat WHERE Nom='tarte aux poires'),(SELECT IID FROM Ingredient WHERE Nom='huile (1 c.s.)')), ((SELECT PID FROM Plat WHERE Nom='soupe de légumes'),(SELECT IID FROM Ingredient WHERE Nom='200g légumes de saison')), ((SELECT PID FROM Plat WHERE Nom='soupe de légumes'),(SELECT IID FROM Ingredient WHERE Nom='huile (1/2 c.s.)')),((SELECT PID FROM Plat WHERE Nom='omelette aux pommes de terre'),(SELECT IID FROM Ingredient WHERE Nom='2 œufs')),((SELECT PID FROM Plat WHERE Nom='omelette aux pommes de terre'),(SELECT IID FROM Ingredient WHERE Nom='pommes de terre')),((SELECT PID FROM Plat WHERE Nom='omelette aux pommes de terre'),(SELECT IID FROM Ingredient WHERE Nom='huile (1/2 c.s.)')),((SELECT PID FROM Plat WHERE Nom='salade de fruits'),(SELECT IID FROM Ingredient WHERE Nom='fruits de saison')),((SELECT PID FROM Plat WHERE Nom='salade de fruits'),(SELECT IID FROM Ingredient WHERE Nom='pain'));
+
+-- Insertion de plusieurs menus
+INSERT INTO Menu(Nom) VALUES ('Repas classique 1 (avec poulet)'), ('Repas classique 2 (avec boeuf)'),('Repas végétarien 1');
+
+-- Insertion de plusieurs composition de menu en récupérant l’id de leur plat par une requête
+INSERT INTO CompositionMenu VALUES ((SELECT MID FROM Menu WHERE Nom='Repas classique 1 (avec poulet)'),(SELECT PID FROM Plat WHERE Nom='legumes à la grecque')),((SELECT MID FROM Menu WHERE Nom='Repas classique 1 (avec poulet)'),(SELECT PID FROM Plat WHERE Nom='poulet au riz')),((SELECT MID FROM Menu WHERE Nom='Repas classique 1 (avec poulet)'),(SELECT PID FROM Plat WHERE Nom='Plateau de fromages')), ((SELECT MID FROM Menu WHERE Nom='Repas classique 2 (avec boeuf)'),(SELECT PID FROM Plat WHERE Nom='tzatziki')),((SELECT MID FROM Menu WHERE Nom='Repas classique 2 (avec boeuf)'),(SELECT PID FROM Plat WHERE Nom='bifteck - frites')),((SELECT MID FROM Menu WHERE Nom='Repas classique 2 (avec boeuf)'),(SELECT PID FROM Plat WHERE Nom='tarte aux poires')),((SELECT MID FROM Menu WHERE Nom='Repas végétarien 1'),(SELECT PID FROM Plat WHERE Nom='soupe de légumes')),((SELECT MID FROM Menu WHERE Nom='Repas végétarien 1'),(SELECT PID FROM Plat WHERE Nom='omelette aux pommes de terre')),((SELECT MID FROM Menu WHERE Nom='Repas végétarien 1'),(SELECT PID FROM Plat WHERE Nom='salade de fruits'));
+
+-- Requete d'insertion devant faire afficher un message d'erreur au déclencheur
+--INSERT INTO CompositionMenu VALUES ((SELECT MID FROM Menu WHERE Nom='Repas végétarien 1'),(SELECT PID FROM Plat WHERE Nom='tarte aux poires'));
+
+--CONTRAINTES SUR LES TABLES
+--Table Ingrédient : 
+--IID est la clé primaire
+--Le couple Nom, CO2 doit être unique
+--Le CO2 doit être supérieur à 0 
+--Le nom de l’ingrédient ne peut pas être vide
+
+--Table catégorie:
+--CID est la clé primaire
+--Le nom de la catégorie ne peut pas être vide
+
+--Table Plat:
+--PID est la clé primaire
+--Le nom du Plat ne peut pas être vide
+--Le couple Nom, CO2 doit être unique
+--CID est la clé étrangère de la table Catégorie
+--Le CO2 doit être supérieur à 0 
+
+--Table CompositionPlat:
+--PID est la clé étrangère de la table Plat 
+--IID est la clé étrangère de la table Ingrédient 
+
+--Table Menu:
+--MID est la clé primaire
+--Le nom du menu ne peut pas être vide
+--Le couple Nom, CO2 doit être unique
+--Le CO2 doit être supérieur à 0 
+
+--Table CompositionMenu:
+--MID est la clé étrangère de la table Menu
+--PID est la clé étrangère de la table Plat
+
+--REPONSES AUX QUESTIONS
+
+--Question a
+SELECT  p.nom as plat, i.nom as ingredient, ca.nom as Categorie FROM CompositionPlat c JOIN Plat p ON c.PID = p.PID JOIN Ingredient i ON i.IID = c.IID join Categorie ca on p.CID = ca.CID WHERE i.nom LIKE '%huile%'; 
+
+--Question b 
+SELECT p.nom AS plat, ca.nom AS categorie FROM Plat p JOIN Categorie ca ON p.cid = ca.cid JOIN CompositionPlat cp ON p.pid = cp.pid JOIN Ingredient i ON cp.iid = i.iid GROUP BY p.nom, ca.nom HAVING EVERY (i.nom NOT LIKE '%beurre%') ORDER BY p.nom; 
+--Tps d’execution : 0.284 ms
+
+SELECT DISTINCT p.nom as plat, ca.nom as Categorie FROM CompositionPlat cp JOIN Plat p ON cp.pid = p.pid JOIN Categorie ca ON p.cid = ca.cid WHERE cp.pid NOT IN (SELECT cp.pid FROM CompositionPlat cp JOIN Ingredient i ON cp.iid = i.iid WHERE i.nom LIKE '%beurre%') ORDER BY p.nom;
+--Tps d’execution : 0.099 ms
+
+CREATE VIEW ListAvecBeurre AS SELECT * FROM CompositionPlat cp WHERE cp.iid IN (SELECT iid FROM Ingredient WHERE nom LIKE '%beurre%');
+SELECT DISTINCT p.nom as plat, ca.nom as Categorie FROM plat p JOIN Categorie ca on p.CID = ca.CID WHERE p.pid NOT IN (Select pid FROM ListAvecBeurre) ORDER BY p.nom;
+--Temps d’execution 0.168 ms
+
+--Question c
+SELECT i.nom FROM CompositionPlat cp JOIN Ingredient i ON cp.iid = i.iid GROUP BY i.nom HAVING COUNT(pid)>1; 
+--Tps d’execution : 0.136 ms
+
+CREATE VIEW ListIngredient AS SELECT i.nom as nom, COUNT(i.nom) as count FROM CompositionPlat cp JOIN Ingredient i ON cp.iid = i.iid GROUP BY i.nom;
+SELECT nom FROM ListIngredient WHERE count >=2;
+--Tps d’execution : 0.142 ms
+
+--Question d
+SELECT nom, co2 FROM Ingredient WHERE Co2 <= ALL (SELECT Co2 FROM Ingredient) ORDER BY Co2; 
+--Tps d’execution : 0.086 ms
+
+SELECT nom, Co2 FROM ingredient WHERE Co2 <= (SELECT MIN(Co2) FROM Ingredient);
+--Tps d’execution : 0.024 ms
+
+--Question e
+CREATE VIEW ListPlat AS SELECT i.nom as ingredient, i.co2, p.pid FROM Plat p JOIN CompositionPlat cp ON p.pid = cp.pid JOIN Ingredient i ON cp.iid = i.iid;
+
+CREATE VIEW ListMenu AS SELECT m.nom as menu, cm.pid, p.nom as plat FROM Menu m JOIN CompositionMenu cm ON m.mid = cm.mid JOIN Plat p ON cm.pid = p.pid; 
+
+SELECT * FROM ListMenu JOIN ListPlat ON ListPlat.pid = ListMenu.pid WHERE co2 <= ALL (SELECT Co2 FROM Ingredient) ORDER BY Co2;
+
+--Question f
+CREATE VIEW Entree AS SELECT p.nom as entree, p.co2 as Co2 from Plat p JOIN Categorie ca ON p.cid = ca.cid WHERE ca.nom = 'Entree' AND co2 <= (SELECT MIN(Co2) FROM plat WHERE cid= 1) ORDER BY Co2;
+
+CREATE VIEW PlatPrinc AS SELECT p.nom as platPrincipal, p.co2 as Co2 FROM Plat p JOIN Categorie ca ON p.cid = ca.cid WHERE ca.nom = 'Plat principal' AND co2 <= (SELECT MIN(Co2) FROM plat WHERE cid= 2) ORDER BY Co2;
+
+CREATE VIEW Dessert AS SELECT p.nom as dessert, p.co2 as Co2 FROM Plat p JOIN Categorie ca ON p.cid = ca.cid WHERE ca.nom = 'Dessert' AND co2 <= (SELECT MIN(Co2) FROM plat WHERE cid= 3) ORDER BY Co2;
+
+CREATE VIEW AllPlat AS SELECT Co2 FROM Entree UNION SELECT Co2 FROM PlatPrinc UNION SELECT Co2 FROM Dessert;
+
+CREATE VIEW AllPlatCO2 AS SELECT SUM(CO2) as totalCO2 FROM AllPlat;
+
+CREATE VIEW Final AS SELECT entree, platprincipal, dessert, totalCO2 FROM Entree, PlatPrinc, Dessert, AllPlatCO2;
+
+SELECT * FROM Final;
+
+--Question g
+SELECT DISTINCT m.nom as menu FROM CompositionMenu cm JOIN Menu m ON cm.mid = m.mid JOIN Plat p ON cm.pid = p.pid WHERE p.nom IN (SELECT entree FROM Final) OR  p.nom IN (SELECT platprincipal FROM Final) OR p.nom IN (SELECT dessert FROM Final);
